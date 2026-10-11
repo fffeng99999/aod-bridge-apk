@@ -46,6 +46,7 @@ final class AodInjector {
     private static final String VIEW_TAG = "aodbridge_usage_view";
     private static final String TITLE_TAG = "aodbridge_title_view";
     private static final String BODY_TAG = "aodbridge_body_view";
+    private static final String CREDITS_TAG = "aodbridge_credits_view";
 
     private static XposedModule module;
     private static ClassLoader sClassLoader;
@@ -56,10 +57,16 @@ final class AodInjector {
     private static volatile WeakReference<View> injectedView = new WeakReference<>(null);
     private static volatile WeakReference<TextView> injectedTitle = new WeakReference<>(null);
     private static volatile WeakReference<TextView> injectedBody = new WeakReference<>(null);
+    private static volatile WeakReference<TextView> injectedCredits = new WeakReference<>(null);
     private static volatile boolean lastShift = Bridge.SHIFT_DEFAULT;
     private static volatile int lastDurationSec = Bridge.DURATION_DEFAULT;
     private static volatile boolean lastKeepAod = Bridge.KEEP_AOD_DEFAULT;
     private static volatile boolean lastHideFp = Bridge.HIDE_FP_DEFAULT;
+    private static volatile int lastWindowFrom = Bridge.WINDOW_FROM_DEFAULT;
+    private static volatile int lastWindowTo = Bridge.WINDOW_TO_DEFAULT;
+    private static volatile String lastCreditsCn = "";
+    private static volatile String lastCreditsIntl = "";
+    private static volatile boolean windowActive;
     private static volatile boolean countdownActive;
     private static volatile boolean countdownScheduled;
     private static volatile boolean timedOut;
@@ -326,11 +333,18 @@ final class AodInjector {
 
                 TextView body = new TextView(root.getContext());
                 body.setTag(BODY_TAG);
-                body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+                body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 7f);
                 body.setLineSpacing(0f, 1.15f);
                 body.setAlpha(0.85f);
                 body.setGravity(Gravity.CENTER);
                 box.addView(body, wrapParams());
+
+                TextView credits = new TextView(root.getContext());
+                credits.setTag(CREDITS_TAG);
+                credits.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+                credits.setTypeface(Typeface.DEFAULT_BOLD);
+                credits.setGravity(Gravity.CENTER);
+                box.addView(credits, wrapParams());
 
                 box.setAlpha(0.001f);
                 ViewGroup previous = lastRoot.get();
@@ -372,14 +386,18 @@ final class AodInjector {
     private static void bindTextViews(LinearLayout box) {
         View title = box.findViewWithTag(TITLE_TAG);
         View body = box.findViewWithTag(BODY_TAG);
+        View credits = box.findViewWithTag(CREDITS_TAG);
         injectedTitle = new WeakReference<>(title instanceof TextView ? (TextView) title : null);
         injectedBody = new WeakReference<>(body instanceof TextView ? (TextView) body : null);
+        injectedCredits = new WeakReference<>(
+                credits instanceof TextView ? (TextView) credits : null);
     }
 
     /** 标题、正文、倒数行都在这里统一刷新。 */
     private static void applyText() {
         TextView title = injectedTitle.get();
         TextView body = injectedBody.get();
+        TextView credits = injectedCredits.get();
         int color = colorFor(lastState);
         if (title != null) {
             title.setTextColor(color);
@@ -388,6 +406,23 @@ final class AodInjector {
             body.setTextColor(color);
             body.setText((lastText.isEmpty() ? Bridge.TEXT_WAITING : lastText) + countdownLine());
         }
+        if (credits != null) {
+            credits.setTextColor(color);
+            credits.setText(buildCreditsLine());
+        }
+    }
+
+    /** 积分行：左侧国内、右侧国际，同一行内左右对齐。 */
+    private static String buildCreditsLine() {
+        String left = "国内 " + (lastCreditsCn.isEmpty() ? "—" : lastCreditsCn);
+        String right = (lastCreditsIntl.isEmpty() ? "—" : lastCreditsIntl) + " 国际";
+        int gap = Math.max(2, 24 - left.length() - right.length());
+        StringBuilder line = new StringBuilder(left);
+        for (int i = 0; i < gap; i++) {
+            line.append(' ');
+        }
+        line.append(right);
+        return line.toString();
     }
 
     /** 倒数行：限时显示时给剩余时间（跑完隐藏正文）；保持显示时不加提示行。 */
@@ -414,7 +449,7 @@ final class AodInjector {
     private static void applyVisibility() {
         View view = injectedView.get();
         if (view != null) {
-            view.setVisibility(timedOut ? View.GONE : View.VISIBLE);
+            view.setVisibility((timedOut || !windowActive) ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -478,12 +513,13 @@ final class AodInjector {
                 }
                 if (lastDurationSec > 0 && remainingSec() <= 0) {
                     timedOut = true;
-                    applyVisibility();
+                    fadeOutAndHide();
                     log(Log.INFO, "countdown end: 文案已按设定隐藏 " + lastDurationSec + "s");
                     // 保活期间被拦下的“熄灭”动作在这里补发，避免 AOD 永远关不掉
                     KeepAlive.replayPendingExit();
                     return;
                 }
+                refreshWindowState();
                 applyText();
             } catch (Throwable t) {
                 log(Log.WARN, "countdown tick failed: " + t);
@@ -508,6 +544,7 @@ final class AodInjector {
         FpIconHider.onScreenOff();
         log(Log.INFO, "screen off: countdown="
                 + (lastDurationSec == Bridge.DURATION_KEEP ? "keep" : lastDurationSec + "s"));
+        fadeShow();
         applyVisibility();
         applyText();
         if (lastDurationSec > 0) {
@@ -522,8 +559,35 @@ final class AodInjector {
         KeepAlive.clearPending();
         FpIconHider.onScreenOn();
         log(Log.INFO, "screen on: countdown reset");
+        View view = injectedView.get();
+        if (view != null) {
+            view.setAlpha(0.001f);
+        }
         applyVisibility();
         applyText();
+    }
+
+    /** 锁屏淡入：文字从透明渐变到目标透明度，避免突然出现。 */
+    private static void fadeShow() {
+        View view = injectedView.get();
+        if (view == null) {
+            return;
+        }
+        view.setAlpha(0.001f);
+        view.animate().cancel();
+        view.animate().alpha(0.85f).setDuration(800).start();
+    }
+
+    /** 到点淡出后隐藏，避免瞬间消失。 */
+    private static void fadeOutAndHide() {
+        final View view = injectedView.get();
+        if (view == null) {
+            return;
+        }
+        view.animate().cancel();
+        view.animate().alpha(0.001f).setDuration(600)
+                .withEndAction(() -> view.setVisibility(View.GONE))
+                .start();
     }
 
     /** 注入时的初始占位 LayoutParams（先隐身后由 AutoLayout 算真实落点）。 */
@@ -638,6 +702,29 @@ final class AodInjector {
                 FpIconHider.setEnabled(hideFp);
             }
         }
+        if (intent.hasExtra(Bridge.EXTRA_WINDOW_FROM)) {
+            lastWindowFrom = intent.getIntExtra(Bridge.EXTRA_WINDOW_FROM, lastWindowFrom);
+        }
+        if (intent.hasExtra(Bridge.EXTRA_WINDOW_TO)) {
+            lastWindowTo = intent.getIntExtra(Bridge.EXTRA_WINDOW_TO, lastWindowTo);
+        }
+        refreshWindowState();
+    }
+
+    /** 当前本地时间（分钟）是否落在显示时段内；终点 <= 起点视为全天。 */
+    private static void refreshWindowState() {
+        java.util.Calendar calendar = java.util.Calendar.getInstance();
+        int nowMinutes = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60
+                + calendar.get(java.util.Calendar.MINUTE);
+        if (lastWindowTo <= lastWindowFrom) {
+            windowActive = true;
+        } else {
+            windowActive = nowMinutes >= lastWindowFrom && nowMinutes < lastWindowTo;
+        }
+        View view = injectedView.get();
+        if (view != null) {
+            applyVisibility();
+        }
     }
 
     /** AOD 上的字色跟着数据状态走：正常浅青、缓存兜底浅琥珀、离线暖橙。 */
@@ -676,6 +763,7 @@ final class AodInjector {
                     public void onReceive(Context ctx, Intent intent) {
                         String action = intent.getAction();
                         if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                            refreshWindowState();
                             onScreenOff();
                             return;
                         }
@@ -690,6 +778,14 @@ final class AodInjector {
                             lastText = text;
                             String state = intent.getStringExtra(Bridge.EXTRA_STATE);
                             lastState = state == null ? Bridge.STATE_OK : state;
+                            lastCreditsCn = intent.getStringExtra(Bridge.EXTRA_CREDITS_CN);
+                            lastCreditsIntl = intent.getStringExtra(Bridge.EXTRA_CREDITS_INTL);
+                            if (lastCreditsCn == null) {
+                                lastCreditsCn = "";
+                            }
+                            if (lastCreditsIntl == null) {
+                                lastCreditsIntl = "";
+                            }
                             log(Log.INFO, "broadcast received [" + lastState + "]: " + text
                                     + " shift=" + lastShift
                                     + " duration=" + durationLabel() + " keepAod=" + lastKeepAod

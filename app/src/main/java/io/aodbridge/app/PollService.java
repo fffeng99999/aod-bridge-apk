@@ -99,6 +99,7 @@ public class PollService extends Service {
         intent.putExtra(Bridge.EXTRA_STATE, state);
         putConfigExtras(intent);
         intent.putExtra(Bridge.EXTRA_TOKENS, payload.optLong("total_tokens", 0));
+        pushCreditsToSystemUi(intent, payload.optJSONObject("credits"));
         intent.putExtra(Bridge.EXTRA_COST, String.valueOf(payload.opt("cost_cny")));
         intent.putExtra(Bridge.EXTRA_SOURCE, payload.optString("source", ""));
         intent.putExtra(Bridge.EXTRA_UPDATED_AT, payload.optString("updated_at", ""));
@@ -121,6 +122,19 @@ public class PollService extends Service {
         intent.putExtra(Bridge.EXTRA_DURATION_SEC, AppConfig.durationSec(this));
         intent.putExtra(Bridge.EXTRA_KEEP_AOD, AppConfig.keepAod(this));
         intent.putExtra(Bridge.EXTRA_HIDE_FP, AppConfig.hideFp(this));
+        intent.putExtra(Bridge.EXTRA_WINDOW_FROM, AppConfig.windowFrom(this));
+        intent.putExtra(Bridge.EXTRA_WINDOW_TO, AppConfig.windowTo(this));
+    }
+
+    /** 积分合计（国内/国际）随广播下发；AOD 最下方一行左右分显。 */
+    private void pushCreditsToSystemUi(Intent intent, org.json.JSONObject credits) {
+        if (credits == null) {
+            return;
+        }
+        intent.putExtra(Bridge.EXTRA_CREDITS_CN,
+                String.valueOf(credits.opt("cn")));
+        intent.putExtra(Bridge.EXTRA_CREDITS_INTL,
+                String.valueOf(credits.opt("intl")));
     }
 
     @Override

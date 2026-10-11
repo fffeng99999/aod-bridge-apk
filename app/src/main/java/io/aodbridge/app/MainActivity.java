@@ -57,9 +57,12 @@ public class MainActivity extends Activity {
     private Switch hideFpSwitch;
     private Spinner durationSpinner;
     private Spinner pollSpinner;
+    private Spinner windowFromSpinner;
+    private Spinner windowToSpinner;
     private CheckBox[] lineChecks;
     private Palette palette;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private volatile boolean accountTableLoading = false;
 
     private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
 
@@ -73,6 +76,20 @@ public class MainActivity extends Activity {
     private static final int[] POLL_VALUES = {15, 30, 60, 120, 300, 600};
     private static final String[] POLL_LABELS = {
             "15 秒", "30 秒", "1 分钟", "2 分钟", "5 分钟", "10 分钟"
+    };
+
+    /** 显示时段起点档位（分钟）。 */
+    private static final int[] WINDOW_FROM_VALUES = {0, 360, 420, 480, 540, 600, 660};
+    private static final String[] WINDOW_FROM_LABELS = {
+            "0:00", "6:00", "7:00", "8:00", "9:00", "10:00", "11:00"
+    };
+    /** 显示时段终点档位（分钟）。 */
+    private static final int[] WINDOW_TO_VALUES = {
+            720, 780, 840, 900, 960, 1020, 1080, 1140, 1200, 1260, 1320, 1380, 1440
+    };
+    private static final String[] WINDOW_TO_LABELS = {
+            "12:00", "13:00", "14:00", "15:00", "16:00", "17:00",
+            "18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "全天"
     };
 
     /** 数据行勾选：位掩码与勾选框一一对应，默认全选。 */
@@ -149,13 +166,8 @@ public class MainActivity extends Activity {
 
         TextView title = text(Bridge.TITLE, 30, palette.text);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(26), dp(18), dp(26), dp(2));
+        title.setPadding(dp(26), dp(8), dp(26), dp(2));
         root.addView(title);
-
-        TextView subtitle = text("AOD Bridge · 每分钟经中转取 workbuddy2api-hub 用量", 13,
-                palette.textSecondary);
-        subtitle.setPadding(dp(26), 0, dp(26), dp(6));
-        root.addView(subtitle);
 
         root.addView(sectionHeader("连接设置"));
         LinearLayout connectCard = newCard();
@@ -173,10 +185,6 @@ public class MainActivity extends Activity {
         pollSpinner = spinner(POLL_LABELS, pollIndex(AppConfig.pollSec(this)));
         connectCard.addView(titleRow("轮询间隔", "每多久取一次数，改完点下方保存立即生效",
                 pollSpinner));
-        TextView lanHint = text("开发阶段手机与中转需同一局域网；地址形如 http://<PC IP>:8790",
-                12, palette.textSecondary);
-        lanHint.setPadding(dp(18), 0, dp(18), dp(14));
-        connectCard.addView(lanHint);
         root.addView(connectCard);
 
         Button saveStart = pillButton("保存并启动轮询", true, v -> saveAndStart());
@@ -187,7 +195,16 @@ public class MainActivity extends Activity {
             AppConfig.setStatus(this, "已停止");
             statusView.setText(AppConfig.status(this));
         }));
-        root.addView(pillButton("立即测试取数（不走后台）", false, v -> runOnceTest()));
+        root.addView(pillButton("立即测试取数", false, v -> runOnceTest()));
+
+        root.addView(sectionHeader("运行状态"));
+        LinearLayout statusCard = newCard();
+        statusView = text(AppConfig.status(this), 13, palette.textSecondary);
+        statusView.setLineSpacing(0f, 1.25f);
+        statusView.setPadding(dp(18), dp(14), dp(18), dp(14));
+        statusView.setTextIsSelectable(true);
+        statusCard.addView(statusView);
+        root.addView(statusCard);
 
         root.addView(sectionHeader("息屏显示"));
         LinearLayout displayCard = newCard();
@@ -196,6 +213,35 @@ public class MainActivity extends Activity {
         durationSpinner = spinner(DURATION_LABELS, durationIndex(AppConfig.durationSec(this)));
         displayCard.addView(titleRow("锁屏后显示时长", "只影响本模块文字，与系统息屏时钟无关",
                 durationSpinner));
+        windowFromSpinner = spinner(WINDOW_FROM_LABELS,
+                windowIndex(WINDOW_FROM_VALUES, AppConfig.windowFrom(this)));
+        windowToSpinner = spinner(WINDOW_TO_LABELS,
+                windowIndex(WINDOW_TO_VALUES, AppConfig.windowTo(this)));
+        LinearLayout windowRow = newRow();
+        LinearLayout windowLabels = new LinearLayout(this);
+        windowLabels.setOrientation(LinearLayout.VERTICAL);
+        windowLabels.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView windowName = text("显示时间段", 16, palette.text);
+        windowName.setTypeface(MEDIUM);
+        windowLabels.addView(windowName);
+        TextView windowSub = text("一天中允许显示本模块文字的时段", 12, palette.textSecondary);
+        windowSub.setPadding(0, dp(2), 0, 0);
+        windowLabels.addView(windowSub);
+        windowRow.addView(windowLabels);
+        LinearLayout windowPickers = new LinearLayout(this);
+        windowPickers.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams fromParams = new LinearLayout.LayoutParams(
+                dp(96), ViewGroup.LayoutParams.WRAP_CONTENT);
+        windowPickers.addView(windowFromSpinner, fromParams);
+        TextView windowDash = text(" – ", 15, palette.textSecondary);
+        windowDash.setGravity(Gravity.CENTER);
+        windowPickers.addView(windowDash);
+        LinearLayout.LayoutParams toParams = new LinearLayout.LayoutParams(
+                dp(96), ViewGroup.LayoutParams.WRAP_CONTENT);
+        windowPickers.addView(windowToSpinner, toParams);
+        windowRow.addView(windowPickers);
+        displayCard.addView(windowRow);
         shiftSwitch = miuixSwitch(AppConfig.shift(this));
         displayCard.addView(titleRow("防烧屏", "每分钟轻微移动显示位置", shiftSwitch));
         keepAodSwitch = miuixSwitch(AppConfig.keepAod(this));
@@ -224,20 +270,19 @@ public class MainActivity extends Activity {
                 "重启", v -> confirmRestartSystemUi()));
         root.addView(maintainCard);
 
-        root.addView(sectionHeader("运行状态"));
-        LinearLayout statusCard = newCard();
-        statusView = text(AppConfig.status(this), 13, palette.textSecondary);
-        statusView.setLineSpacing(0f, 1.25f);
-        statusView.setPadding(dp(18), dp(14), dp(18), dp(14));
-        statusView.setTextIsSelectable(true);
-        statusCard.addView(statusView);
-        root.addView(statusCard);
+        root.addView(sectionHeader("账号禁用"));
+        LinearLayout accountCard = newCard();
+        accountCard.setTag("account_card");
+        accountCard.addView(text("加载中…", 13, palette.textSecondary));
+        root.addView(accountCard);
+        refreshAccountTable();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(palette.background);
         scroll.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(scroll);
+        handler.postDelayed(statusTicker, 2000);
     }
 
     // ---------------------------------------------------------------- MiuiX 组件
@@ -394,6 +439,7 @@ public class MainActivity extends Activity {
     private CheckBox miuixCheck(boolean checked) {
         CheckBox box = new CheckBox(this);
         box.setChecked(checked);
+        box.setTextColor(palette.text);
         box.setButtonTintList(new ColorStateList(
                 new int[][] {new int[] {android.R.attr.state_checked}, new int[] {}},
                 new int[] {palette.accent, palette.textSecondary}));
@@ -465,6 +511,19 @@ public class MainActivity extends Activity {
             }
         }
         return 2;
+    }
+
+    private static int windowIndex(int[] values, int minutes) {
+        int best = 0;
+        int bestDistance = Integer.MAX_VALUE;
+        for (int i = 0; i < values.length; i++) {
+            int distance = Math.abs(values[i] - minutes);
+            if (distance < bestDistance) {
+                best = i;
+                bestDistance = distance;
+            }
+        }
+        return best;
     }
 
     private void runOnceTest() {
@@ -555,6 +614,107 @@ public class MainActivity extends Activity {
         AppConfig.saveDisplay(this, shiftSwitch.isChecked(),
                 selectedDurationSec(), selectedLinesMask(), keepAodSwitch.isChecked(),
                 hideFpSwitch.isChecked());
+        AppConfig.setWindow(this,
+                WINDOW_FROM_VALUES[windowFromSpinner.getSelectedItemPosition()],
+                WINDOW_TO_VALUES[windowToSpinner.getSelectedItemPosition()]);
+    }
+
+    /** 账号禁用表：拉 /aod/accounts（中转 v0.4.1+），仅显示在 App 内，不进 AOD。 */
+    private void refreshAccountTable() {
+        if (accountTableLoading) {
+            return;
+        }
+        accountTableLoading = true;
+        new Thread(() -> {
+            String error = null;
+            org.json.JSONObject payload = null;
+            try {
+                payload = RelayClient.fetchAccounts(AppConfig.url(this), AppConfig.token(this));
+            } catch (Exception fetchError) {
+                error = fetchError.getMessage();
+            }
+            final org.json.JSONObject data = payload;
+            final String failMessage = error;
+            handler.post(() -> renderAccountTable(data, failMessage));
+            accountTableLoading = false;
+        }, "aodbridge-accounts").start();
+    }
+
+    private void renderAccountTable(org.json.JSONObject payload, String error) {
+        LinearLayout card = (LinearLayout) ((ViewGroup) getWindow().getDecorView()
+                .findViewWithTag("account_card"));
+        if (card == null) {
+            return;
+        }
+        card.removeAllViews();
+        if (payload == null) {
+            TextView note = text("账号禁用：加载失败（" + (error == null ? "未知错误" : error)
+                    + "）", 13, palette.textSecondary);
+            note.setPadding(dp(18), dp(14), dp(18), dp(14));
+            card.addView(note);
+            return;
+        }
+        org.json.JSONArray rows = payload.optJSONArray("disabled_accounts");
+        int count = rows == null ? 0 : rows.length();
+        TextView caption = text(count == 0
+                ? "当前没有禁用或冷却中的账号"
+                : "禁用 / 冷却中的账号（" + count + "）", 13, palette.textSecondary);
+        caption.setPadding(dp(18), dp(12), dp(18), dp(4));
+        card.addView(caption);
+        if (count == 0) {
+            return;
+        }
+        LinearLayout header = accountTableRow("账号", "区域", "状态", "剩余", "原因", true);
+        card.addView(header);
+        for (int i = 0; i < rows.length(); i++) {
+            org.json.JSONObject row = rows.optJSONObject(i);
+            if (row == null) {
+                continue;
+            }
+            String nickname = row.optString("nickname", "");
+            if (nickname.isEmpty()) {
+                nickname = row.optString("uid", "?");
+            }
+            String realm = "cn".equals(row.optString("realm")) ? "国内" : "国际";
+            boolean enabled = row.optBoolean("enabled", true);
+            boolean cooling = row.optBoolean("inCooldown", false);
+            String status;
+            if (!enabled) {
+                status = "已禁用";
+            } else if (cooling) {
+                status = "冷却 " + row.optInt("cooldownFor", 0) + "s";
+            } else {
+                status = "正常";
+            }
+            String reason = row.optString("lastError", "");
+            card.addView(accountTableRow(nickname, realm, status,
+                    row.optString("expiresIn", ""), reason, false));
+        }
+    }
+
+    /** 表格行：竖屏适配，五列按权重分配；首行为表头。 */
+    private LinearLayout accountTableRow(String name, String realm, String status,
+                                         String remain, String reason, boolean header) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int color = header ? palette.textSecondary : palette.text;
+        row.addView(accountCell(name, 0.24f, color, header));
+        row.addView(accountCell(realm, 0.12f, color, header));
+        row.addView(accountCell(status, 0.2f, color, header));
+        row.addView(accountCell(remain, 0.14f, color, header));
+        row.addView(accountCell(reason, 0.3f, color, header));
+        row.setPadding(dp(14), dp(6), dp(14), dp(6));
+        return row;
+    }
+
+    private TextView accountCell(String value, float weight, int color, boolean header) {
+        TextView cell = text(value, header ? 11 : 12, color);
+        cell.setSingleLine(true);
+        cell.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, weight));
+        return cell;
     }
 
     /** 只发配置（不带 text）：hook 收到后只调整显示参数，不动文案。 */
@@ -565,6 +725,8 @@ public class MainActivity extends Activity {
         intent.putExtra(Bridge.EXTRA_DURATION_SEC, AppConfig.durationSec(this));
         intent.putExtra(Bridge.EXTRA_KEEP_AOD, AppConfig.keepAod(this));
         intent.putExtra(Bridge.EXTRA_HIDE_FP, AppConfig.hideFp(this));
+        intent.putExtra(Bridge.EXTRA_WINDOW_FROM, AppConfig.windowFrom(this));
+        intent.putExtra(Bridge.EXTRA_WINDOW_TO, AppConfig.windowTo(this));
         sendBroadcast(intent);
     }
 

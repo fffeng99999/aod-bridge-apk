@@ -11,6 +11,8 @@ public final class Bridge {
     public static final String EXTRA_SOURCE = "source";
     public static final String EXTRA_UPDATED_AT = "updated_at";
     public static final String EXTRA_STATE = "state";
+    public static final String EXTRA_CREDITS_CN = "credits_cn";
+    public static final String EXTRA_CREDITS_INTL = "credits_intl";
 
     /** 数据状态：正常 / 中转为缓存兜底 / 取数失败（离线）。 */
     public static final String STATE_OK = "ok";
@@ -78,6 +80,12 @@ public final class Bridge {
     public static final int POLL_DEFAULT_SEC = 60;
     public static final int POLL_MIN_SEC = 10;
     public static final int POLL_MAX_SEC = 600;
+
+    /** 一天内允许显示的时段（分钟，本地时间）；默认全天。 */
+    public static final String EXTRA_WINDOW_FROM = "window_from";
+    public static final String EXTRA_WINDOW_TO = "window_to";
+    public static final int WINDOW_FROM_DEFAULT = 0;
+    public static final int WINDOW_TO_DEFAULT = 24 * 60;
 
     private Bridge() {
     }

@@ -23,6 +23,8 @@ public final class AppConfig {
     private static final String KEY_KEEP_AOD = "keep_aod";
     private static final String KEY_HIDE_FP = "hide_fp";
     private static final String KEY_POLL_SEC = "poll_sec";
+    private static final String KEY_WINDOW_FROM = "window_from";
+    private static final String KEY_WINDOW_TO = "window_to";
 
     public static final String DEFAULT_URL = "http://192.168.1.100:8790";
 
@@ -75,6 +77,25 @@ public final class AppConfig {
     public static void setPollSec(Context context, int seconds) {
         int value = Math.max(Bridge.POLL_MIN_SEC, Math.min(Bridge.POLL_MAX_SEC, seconds));
         prefs(context).edit().putInt(KEY_POLL_SEC, value).apply();
+    }
+
+    /** 显示时段起点（分钟，0-1439）。 */
+    public static int windowFrom(Context context) {
+        int value = prefs(context).getInt(KEY_WINDOW_FROM, Bridge.WINDOW_FROM_DEFAULT);
+        return Math.max(0, Math.min(Bridge.WINDOW_TO_DEFAULT - 1, value));
+    }
+
+    /** 显示时段终点（分钟，1-1440）；<= 起点视为全天。 */
+    public static int windowTo(Context context) {
+        int value = prefs(context).getInt(KEY_WINDOW_TO, Bridge.WINDOW_TO_DEFAULT);
+        return Math.max(1, Math.min(Bridge.WINDOW_TO_DEFAULT, value));
+    }
+
+    public static void setWindow(Context context, int fromMinutes, int toMinutes) {
+        prefs(context).edit()
+                .putInt(KEY_WINDOW_FROM, Math.max(0, Math.min(Bridge.WINDOW_TO_DEFAULT - 1, fromMinutes)))
+                .putInt(KEY_WINDOW_TO, Math.max(1, Math.min(Bridge.WINDOW_TO_DEFAULT, toMinutes)))
+                .apply();
     }
 
     public static void saveDisplay(Context context, boolean shift,
