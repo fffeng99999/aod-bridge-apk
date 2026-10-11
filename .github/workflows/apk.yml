@@ -1,0 +1,114 @@
+name: apk
+
+# 零 Gradle 构建 LSPosed API 102 模块 APK，并发布：
+#   * 推送到 main / 手动触发 -> 上传 workflow artifact（页面底部 Artifacts 下载）
+#   * 推送 v* 标签             -> 创建 GitHub Release 并附上 APK 与 SHA256SUMS.txt
+#
+# 版本号规则：
+#   versionName  标签构建取标签（v0.2.2 -> 0.2.2）；其他构建为 0.0.0-ci.<run_number>；
+#                手动触发可用输入覆盖。
+#   versionCode  恒为 100 + run_number（单调递增，避免 CI 产物低于本地开发版本而无法覆盖安装）。
+#
+# 签名：配置了 Secrets 就用正式密钥，否则临时生成（仅适合测试安装）。
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "versionName（默认 0.0.0-ci.<run_number>）"
+        required: false
+      version_code:
+        description: "versionCode 整数（默认 100 + run_number）"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 安装 Android SDK（cmdline-tools + platform 36 + build-tools）
+        run: |
+          set -euo pipefail
+          export ANDROID_SDK_ROOT="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          ok=""
+          for u in \
+            https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip ; do
+            echo "下载 $u"
+            if curl -fSL --retry 3 -o /tmp/cmdline-tools.zip "$u"; then ok=1; break; fi
+          done
+          [ -n "$ok" ] || { echo "cmdline-tools 下载失败"; exit 1; }
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+          mv /tmp/cmdline-tools/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "platforms;android-36" "build-tools;36.1.0" \
+            || "$sdkmanager" --install "platforms;android-36" "build-tools;36.0.0"
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --list_installed
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: 解析版本号
+        id: v
+        env:
+          IN_NAME: ${{ inputs.version_name }}
+          IN_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            name="${GITHUB_REF_NAME#v}"
+          else
+            name="${IN_NAME:-0.0.0-ci.${GITHUB_RUN_NUMBER}}"
+          fi
+          code="${IN_CODE:-$((100 + GITHUB_RUN_NUMBER))}"
+          [[ "$code" =~ ^[0-9]+$ ]] || { echo "version_code 必须是整数：$code"; exit 1; }
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "本次构建版本：$name ($code)"
+
+      - name: 构建 APK（build.sh，零 Gradle）
+        env:
+          VERSION_NAME: ${{ steps.v.outputs.name }}
+          VERSION_CODE: ${{ steps.v.outputs.code }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::未配置 ANDROID_KEYSTORE_BASE64：本次用临时生成的密钥签名，仅供测试安装"
+          fi
+          bash build.sh
+          ls -l dist/
+
+      - name: 上传构建产物（Artifacts）
+        uses: actions/upload-artifact@v4
+        with:
+          name: aodbridge-${{ steps.v.outputs.name }}
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: 发布 Release（仅 v* 标签）
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.apk dist/SHA256SUMS.txt \
+            --title "AOD Bridge $GITHUB_REF_NAME" \
+            --generate-notes

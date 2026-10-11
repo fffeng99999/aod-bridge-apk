@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AOD Bridge</string>
+    <string name="module_desc">在息屏显示 workbuddy2api-hub 的 token 用量（经 aod-relay 中转，每分钟刷新）</string>
+</resources>
