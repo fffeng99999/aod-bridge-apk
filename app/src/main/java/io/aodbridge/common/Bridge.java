@@ -74,6 +74,11 @@ public final class Bridge {
     public static final int LINE_CACHE = 1 << 5;
     public static final int LINE_ALL = (1 << 6) - 1;
 
+    /** 轮询间隔（秒）：App 每 N 秒取一次数；默认 60，档位在 MainActivity.POLL_VALUES。 */
+    public static final int POLL_DEFAULT_SEC = 60;
+    public static final int POLL_MIN_SEC = 10;
+    public static final int POLL_MAX_SEC = 600;
+
     private Bridge() {
     }
 }

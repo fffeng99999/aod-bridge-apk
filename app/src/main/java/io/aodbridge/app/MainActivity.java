@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
     private Switch keepAodSwitch;
     private Switch hideFpSwitch;
     private Spinner durationSpinner;
+    private Spinner pollSpinner;
     private CheckBox[] lineChecks;
     private Palette palette;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -67,6 +68,11 @@ public class MainActivity extends Activity {
     private static final int[] DURATION_VALUES = {30, 60, 300, 600, 1800, Bridge.DURATION_KEEP};
     private static final String[] DURATION_LABELS = {
             "30 秒", "1 分钟", "5 分钟", "10 分钟", "30 分钟", "保持显示（不自动关闭）"
+    };
+    /** 轮询间隔档位（秒），下拉顺序与之一一对应。 */
+    private static final int[] POLL_VALUES = {15, 30, 60, 120, 300, 600};
+    private static final String[] POLL_LABELS = {
+            "15 秒", "30 秒", "1 分钟", "2 分钟", "5 分钟", "10 分钟"
     };
 
     /** 数据行勾选：位掩码与勾选框一一对应，默认全选。 */
@@ -164,6 +170,9 @@ public class MainActivity extends Activity {
         tokenInput.setInputType(InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         connectCard.addView(fieldBlock("中转令牌", tokenInput));
+        pollSpinner = spinner(POLL_LABELS, pollIndex(AppConfig.pollSec(this)));
+        connectCard.addView(titleRow("轮询间隔", "每多久取一次数，改完点下方保存立即生效",
+                pollSpinner));
         TextView lanHint = text("开发阶段手机与中转需同一局域网；地址形如 http://<PC IP>:8790",
                 12, palette.textSecondary);
         lanHint.setPadding(dp(18), 0, dp(18), dp(14));
@@ -423,6 +432,7 @@ public class MainActivity extends Activity {
         String url = urlInput.getText().toString().trim();
         String token = tokenInput.getText().toString().trim();
         AppConfig.save(this, url, token, AppConfig.range(this), true);
+        AppConfig.setPollSec(this, selectedPollSec());
         saveDisplayFromUi();
         sendConfigBroadcast();
         requestNotificationPermissionIfNeeded();
@@ -438,6 +448,23 @@ public class MainActivity extends Activity {
 
     private void stopPolling() {
         stopService(new Intent(this, PollService.class));
+    }
+
+    private int selectedPollSec() {
+        int index = pollSpinner == null ? -1 : pollSpinner.getSelectedItemPosition();
+        if (index < 0 || index >= POLL_VALUES.length) {
+            return Bridge.POLL_DEFAULT_SEC;
+        }
+        return POLL_VALUES[index];
+    }
+
+    private static int pollIndex(int seconds) {
+        for (int i = 0; i < POLL_VALUES.length; i++) {
+            if (POLL_VALUES[i] == seconds) {
+                return i;
+            }
+        }
+        return 2;
     }
 
     private void runOnceTest() {

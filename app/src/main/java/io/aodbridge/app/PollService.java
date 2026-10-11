@@ -82,7 +82,8 @@ public class PollService extends Service {
     }
 
     private void appConfigRefreshPause() {
-        for (int i = 0; i < 60 && running; i++) {
+        int pollSec = AppConfig.pollSec(this);
+        for (int i = 0; i < pollSec && running; i++) {
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException interrupt) {

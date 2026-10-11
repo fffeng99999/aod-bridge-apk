@@ -22,6 +22,7 @@ public final class AppConfig {
     private static final String KEY_LINES = "lines";
     private static final String KEY_KEEP_AOD = "keep_aod";
     private static final String KEY_HIDE_FP = "hide_fp";
+    private static final String KEY_POLL_SEC = "poll_sec";
 
     public static final String DEFAULT_URL = "http://192.168.1.100:8790";
 
@@ -63,6 +64,17 @@ public final class AppConfig {
 
     public static boolean hideFp(Context context) {
         return prefs(context).getBoolean(KEY_HIDE_FP, Bridge.HIDE_FP_DEFAULT);
+    }
+
+    /** 轮询间隔（秒），夹在 [POLL_MIN_SEC, POLL_MAX_SEC]。 */
+    public static int pollSec(Context context) {
+        int value = prefs(context).getInt(KEY_POLL_SEC, Bridge.POLL_DEFAULT_SEC);
+        return Math.max(Bridge.POLL_MIN_SEC, Math.min(Bridge.POLL_MAX_SEC, value));
+    }
+
+    public static void setPollSec(Context context, int seconds) {
+        int value = Math.max(Bridge.POLL_MIN_SEC, Math.min(Bridge.POLL_MAX_SEC, seconds));
+        prefs(context).edit().putInt(KEY_POLL_SEC, value).apply();
     }
 
     public static void saveDisplay(Context context, boolean shift,
