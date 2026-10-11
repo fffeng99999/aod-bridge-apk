@@ -142,11 +142,22 @@ final class UsageText {
         }
         switch (id) {
             case "today": return (mask & Bridge.LINE_TODAY) != 0;
-            case "week": return (mask & Bridge.LINE_WEEK) != 0;
-            case "month": return (mask & Bridge.LINE_MONTH) != 0;
-            case "requests": return (mask & Bridge.LINE_REQUESTS) != 0;
-            case "io": return (mask & Bridge.LINE_IO) != 0;
-            case "cache": return (mask & Bridge.LINE_CACHE) != 0;
+            case "week":
+            case "week_requests":
+            case "week_io":
+            case "week_cache":
+            case "week_errors": return (mask & Bridge.LINE_WEEK) != 0;
+            case "month":
+            case "month_requests":
+            case "month_io":
+            case "month_cache":
+            case "month_errors": return (mask & Bridge.LINE_MONTH) != 0;
+            case "requests":
+                return (mask & Bridge.LINE_REQUESTS) != 0;
+            case "io":
+                return (mask & Bridge.LINE_IO) != 0;
+            case "cache":
+                return (mask & Bridge.LINE_CACHE) != 0;
             default: return mask == Bridge.LINE_ALL;
         }
     }
