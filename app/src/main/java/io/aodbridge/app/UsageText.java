@@ -18,28 +18,32 @@ final class UsageText {
     private static final String FAIL_MARK = "❌";
 
     static String build(JSONObject payload, int mask) {
+        org.json.JSONArray lines = payload.optJSONArray("lines");
+        if (lines != null && lines.length() > 0) {
+            return buildFromLines(lines, mask);
+        }
         JSONObject failed = payload.optJSONObject("failed");
-        List<String> lines = new ArrayList<>();
+        List<String> legacyLines = new ArrayList<>();
         if ((mask & Bridge.LINE_TODAY) != 0) {
-            lines.add("今日 " + tokensField(payload, failed, "total_tokens") + " tok｜"
+            legacyLines.add("今日 " + tokensField(payload, failed, "total_tokens") + " tok｜"
                     + moneyField(payload, failed, "cost_cny"));
         }
         if ((mask & Bridge.LINE_WEEK) != 0
                 && (payload.optLong("week_total_tokens") > 0
                 || isFailed(failed, "week_total_tokens")
                 || isFailed(failed, "week_cost_cny"))) {
-            lines.add("本周 " + tokensField(payload, failed, "week_total_tokens") + " tok｜"
+            legacyLines.add("本周 " + tokensField(payload, failed, "week_total_tokens") + " tok｜"
                     + moneyField(payload, failed, "week_cost_cny"));
         }
         if ((mask & Bridge.LINE_MONTH) != 0
                 && (payload.optLong("month_total_tokens") > 0
                 || isFailed(failed, "month_total_tokens")
                 || isFailed(failed, "month_cost_cny"))) {
-            lines.add("本月 " + tokensField(payload, failed, "month_total_tokens") + " tok｜"
+            legacyLines.add("本月 " + tokensField(payload, failed, "month_total_tokens") + " tok｜"
                     + moneyField(payload, failed, "month_cost_cny"));
         }
         if ((mask & Bridge.LINE_REQUESTS) != 0) {
-            lines.add("请求 " + intField(payload, failed, "requests")
+        legacyLines.add("请求 " + intField(payload, failed, "requests")
                     + "｜错误 " + intField(payload, failed, "errors"));
         }
         if ((mask & Bridge.LINE_IO) != 0
@@ -47,15 +51,15 @@ final class UsageText {
                 || payload.optLong("completion_tokens") > 0
                 || isFailed(failed, "prompt_tokens")
                 || isFailed(failed, "completion_tokens"))) {
-            lines.add("输入 " + tokensField(payload, failed, "prompt_tokens")
+            legacyLines.add("输入 " + tokensField(payload, failed, "prompt_tokens")
                     + "｜输出 " + tokensField(payload, failed, "completion_tokens"));
         }
         if ((mask & Bridge.LINE_CACHE) != 0
                 && (payload.optLong("cached_tokens") > 0
                 || isFailed(failed, "cached_tokens"))) {
-            lines.add("缓存命中 " + tokensField(payload, failed, "cached_tokens"));
+            legacyLines.add("缓存命中 " + tokensField(payload, failed, "cached_tokens"));
         }
-        return String.join("\n", lines);
+        return String.join("\n", legacyLines);
     }
 
     private static boolean isFailed(JSONObject failed, String name) {
@@ -112,5 +116,38 @@ final class UsageText {
     }
 
     private UsageText() {
+    }
+
+    /** id 与 App 勾选位的映射：today/week/month/requests/io/cache；custom/未知 id 跟「全部勾选」走。 */
+    private static String buildFromLines(org.json.JSONArray lines, int mask) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < lines.length(); i++) {
+            org.json.JSONObject line = lines.optJSONObject(i);
+            if (line == null) {
+                continue;
+            }
+            String id = line.optString("id", "custom");
+            String text = line.optString("text", "");
+            if (text.isEmpty() || !lineVisible(id, mask)) {
+                continue;
+            }
+            out.add(text);
+        }
+        return String.join("\n", out);
+    }
+
+    private static boolean lineVisible(String id, int mask) {
+        if ("custom".equals(id)) {
+            return mask == Bridge.LINE_ALL;
+        }
+        switch (id) {
+            case "today": return (mask & Bridge.LINE_TODAY) != 0;
+            case "week": return (mask & Bridge.LINE_WEEK) != 0;
+            case "month": return (mask & Bridge.LINE_MONTH) != 0;
+            case "requests": return (mask & Bridge.LINE_REQUESTS) != 0;
+            case "io": return (mask & Bridge.LINE_IO) != 0;
+            case "cache": return (mask & Bridge.LINE_CACHE) != 0;
+            default: return mask == Bridge.LINE_ALL;
+        }
     }
 }
