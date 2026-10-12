@@ -98,6 +98,20 @@ public final class AppConfig {
                 .apply();
     }
 
+    /** 还原：显示相关配置全部回到默认值（与首次安装一致）。 */
+    public static void resetDisplayDefaults(Context context) {
+        prefs(context).edit()
+                .putBoolean(KEY_SHIFT, Bridge.SHIFT_DEFAULT)
+                .putInt(KEY_DURATION_SEC, Bridge.DURATION_DEFAULT)
+                .putInt(KEY_LINES, Bridge.LINE_ALL)
+                .putBoolean(KEY_KEEP_AOD, Bridge.KEEP_AOD_DEFAULT)
+                .putBoolean(KEY_HIDE_FP, Bridge.HIDE_FP_DEFAULT)
+                .putInt(KEY_WINDOW_FROM, Bridge.WINDOW_FROM_DEFAULT)
+                .putInt(KEY_WINDOW_TO, Bridge.WINDOW_TO_DEFAULT)
+                .putBoolean(KEY_ENABLED, false)
+                .apply();
+    }
+
     public static void saveDisplay(Context context, boolean shift,
                                    int durationSec, int linesMask, boolean keepAod,
                                    boolean hideFp) {

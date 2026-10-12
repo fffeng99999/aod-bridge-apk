@@ -268,6 +268,8 @@ public class MainActivity extends Activity {
         LinearLayout maintainCard = newCard();
         maintainCard.addView(actionRow("重启系统界面", "让设置 / hook 立即生效",
                 "重启", v -> confirmRestartSystemUi()));
+        maintainCard.addView(actionRow("还原原始息屏", "撤掉注入内容、恢复指纹开关，便于卸载",
+                "还原", v -> confirmRestore()));
         root.addView(maintainCard);
 
         root.addView(sectionHeader("账号禁用"));
@@ -571,6 +573,31 @@ public class MainActivity extends Activity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("重启", (dialog, which) -> restartSystemUi())
                 .show();
+    }
+
+    private void confirmRestore() {
+        new AlertDialog.Builder(this)
+                .setTitle("还原原始息屏")
+                .setMessage("将停止轮询、撤掉 AOD 上的模块文字、恢复息屏指纹图标系统开关，"
+                        + "并把显示设置恢复为默认。\n"
+                        + "还原后建议重启一次系统界面（会自动执行），即可完全恢复到未使用模块的状态，"
+                        + "之后可以放心卸载（含 LSPosed 里的模块）。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("还原", (dialog, which) -> performRestore())
+                .show();
+    }
+
+    private void performRestore() {
+        statusView.setText("正在还原…");
+        AppConfig.setEnabled(this, false);
+        stopPolling();
+        Intent reset = new Intent(Bridge.ACTION_RESET);
+        reset.setPackage(Bridge.TARGET_PACKAGE);
+        sendBroadcast(reset);
+        AppConfig.resetDisplayDefaults(this);
+        AppConfig.setStatus(this, "已还原：模块内容已撤除，显示设置回到默认");
+        statusView.setText(AppConfig.status(this));
+        handler.postDelayed(this::restartSystemUi, 800);
     }
 
     private void restartSystemUi() {

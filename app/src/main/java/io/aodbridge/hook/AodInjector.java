@@ -67,6 +67,8 @@ final class AodInjector {
     private static volatile String lastCreditsCn = "";
     private static volatile String lastCreditsIntl = "";
     private static volatile boolean windowActive;
+    /** 还原后置位：所有注入/保活/改写入口变空操作，直到 SystemUI 重启（模块重新加载）。 */
+    private static volatile boolean suspended;
     private static volatile boolean countdownActive;
     private static volatile boolean countdownScheduled;
     private static volatile boolean timedOut;
@@ -120,6 +122,9 @@ final class AodInjector {
                             .intercept(chain -> {
                                 Object result = chain.proceed();
                                 try {
+                                    if (suspended) {
+                                        return result;
+                                    }
                                     onAodShown(chain.getThisObject());
                                 } catch (Throwable t) {
                                     log(Log.WARN, "onAodShown failed: " + t);
@@ -298,6 +303,9 @@ final class AodInjector {
     }
 
     private static void injectInto(final ViewGroup root, final View clock, final int attempt) {
+        if (suspended) {
+            return;
+        }
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try {
                 View tagged = root.findViewWithTag(VIEW_TAG);
@@ -449,8 +457,41 @@ final class AodInjector {
     private static void applyVisibility() {
         View view = injectedView.get();
         if (view != null) {
-            view.setVisibility((timedOut || !windowActive) ? View.GONE : View.VISIBLE);
+            view.setVisibility((suspended || timedOut || !windowActive) ? View.GONE : View.VISIBLE);
         }
+    }
+
+    /**
+     * 还原原始息屏：撤掉注入视图、恢复指纹图标系统开关、停止保活拦截与防烧屏位移。
+     * 之后所有入口空转，配合「重启系统界面」即可完全回到模块未生效的状态（卸载前用）。
+     */
+    static void restoreOriginal() {
+        if (suspended) {
+            return;
+        }
+        suspended = true;
+        countdownActive = false;
+        timedOut = false;
+        lastText = "";
+        lastCreditsCn = "";
+        lastCreditsIntl = "";
+        KeepAlive.clearPending();
+        FpIconHider.setEnabled(false);
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                View view = injectedView.get();
+                if (view != null && view.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) view.getParent()).removeView(view);
+                }
+                injectedView = new WeakReference<>(null);
+                injectedTitle = new WeakReference<>(null);
+                injectedBody = new WeakReference<>(null);
+                injectedCredits = new WeakReference<>(null);
+                log(Log.INFO, "restore: 注入视图已撤除，指纹开关已恢复");
+            } catch (Throwable t) {
+                log(Log.WARN, "restore failed: " + t);
+            }
+        });
     }
 
     private static String durationLabel() {
@@ -458,7 +499,7 @@ final class AodInjector {
     }
 
     static boolean keepAodEnabled() {
-        return lastKeepAod;
+        return !suspended && lastKeepAod;
     }
 
     /** 屏幕已熄且未解锁（倒计时进行中）——保活只在这个区间内生效。 */
@@ -755,6 +796,7 @@ final class AodInjector {
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
                 IntentFilter filter = new IntentFilter(Bridge.ACTION);
+                filter.addAction(Bridge.ACTION_RESET);
                 filter.addAction(Intent.ACTION_SCREEN_OFF);
                 filter.addAction(Intent.ACTION_SCREEN_ON);
                 filter.addAction(Intent.ACTION_USER_PRESENT);
@@ -762,6 +804,11 @@ final class AodInjector {
                     @Override
                     public void onReceive(Context ctx, Intent intent) {
                         String action = intent.getAction();
+                        if (Bridge.ACTION_RESET.equals(action)) {
+                            log(Log.INFO, "reset broadcast received: 还原原始息屏");
+                            restoreOriginal();
+                            return;
+                        }
                         if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                             refreshWindowState();
                             onScreenOff();

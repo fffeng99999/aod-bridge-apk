@@ -3,6 +3,8 @@ package io.aodbridge.common;
 /** App 进程（轮询服务）与 SystemUI 进程（hook）之间的广播契约。 */
 public final class Bridge {
     public static final String ACTION = "io.aodbridge.USAGE";
+    /** 还原：让 hook 撤掉注入视图、恢复指纹图标开关、停止保活拦截（卸载前用）。 */
+    public static final String ACTION_RESET = "io.aodbridge.RESET";
     public static final String TARGET_PACKAGE = "com.android.systemui";
 
     public static final String EXTRA_TEXT = "text";
